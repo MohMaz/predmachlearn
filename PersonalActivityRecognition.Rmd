@@ -1,0 +1,103 @@
+---
+title: "Personal Activity Recognition"
+author: "Mohammad Mazraeh"
+date: "October 25, 2015"
+output: html_document
+---
+
+# synopsis
+We want to develope a system that can recognize person activity using features provided in pml dataset  
+
+# Data Processing  
+First we load libraries and training data.  
+Due to weak computer specification we could only use a fraction of ata to learn our model.
+
+```{r ,message=FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(caret)
+set.seed(223)
+# Load Train and Test Data
+
+X <- read.csv('pml-training.csv')
+YLevels <- levels(X[,dim(X)[2]])
+subsetIndex <- createDataPartition(X[,dim(X)[2]], p = 0.1, list = FALSE)
+X <- X[subsetIndex,]
+```
+
+## Getting and Cleaning Data  
+by looking at data summary we can find out that some variables have "" or "#Div/0" values 
+that must be removed. To do so we have defined a function named correctNAs
+
+```{r}
+correctNAs = function(df){df<- sapply(df, function(x){x[x==""] <- NA;x[x=="#DIV/0"] <- NA;x}); data.frame(df)}
+```
+
+so we can eliminate invalid variable values.  
+Then we load test data and correct their NAs too and seprate X and Y variables.
+
+```{r}
+X <- correctNAs(X)
+XTest <- read.csv('pml-testing.csv')
+XTest <- correctNAs(XTest)
+YTest <- XTest[,dim(XTest)[2]]
+XTest <- XTest[,-dim(XTest)[2]]
+```
+
+## Feature Selection  
+
+In this section we would remove some features from data set and transform them into 
+new space using principal component analysis. It worths mentioning that what we do 
+with train data, we should do same to test data too.  
+
+### Filter Features
+As be have seen in data summary there is a lot of NA values in dataset. 
+In this part we would calculate what percent of each feature is NA. features that
+have more than 70% Nas would be remove from data set
+
+```{r}
+nanCount <- sapply(X, function(x){sum(is.na(x))})
+highNanCols <- which(nanCount > 0.7*dim(X)[1])
+X <- X[,-highNanCols]
+XTest <- XTest[,-highNanCols]
+Y <- X[,dim(X)[2]]
+Y <- factor(Y, labels = YLevels)
+X <- X[,-dim(X)[2]]
+```
+
+After looking in data summary again there is no NA value in dataset.  
+
+### Feature Transformation Using PCA
+In this part we do principal component analysis and find features that maintain 95%
+of dataset varaiance. Then using pca transformation we transform both train and test
+data into new feature space
+```{r}
+preProc <- preProcess(X, method = 'pca', thresh = 0.95)
+X <- predict(preProc, X)
+XTest <- predict(preProc,XTest)
+```
+## Learning Model & Model Selection
+For Classification problem we have choosed SVM Method with RBF Kernel. we can test many 
+methods like baggigng and boosting but because we have not a good computer with good configuration, 
+so we opt to use simple single SVM with RBF Kernel.  
+In order to have a generalized model we use 10-Fold Cross Validation as train control paremeter
+```{r ,message=FALSE, warning=FALSE}
+trCtrl <- trainControl(method = 'cv',number = 5)
+t <- system.time(model <- train(X, Y,trainControl = trCtrl,method = 'svmRadial', metric = 'Accuracy' ))
+```
+
+# Results
+Here we can see Accuracy and Kappa measure and their standard deviations for different parameters.  
+The best parameter is the parameter with higher accuracy.
+
+```{r}
+model$results
+```
+If we assume normal distrivution for cross validaiton accuracies we can predict
+that out of sample accuracy is in this range with 95% confidence interval
+```{r} 
+maxIndex <- which.max(model$results$Accuracy)
+cint <- model$results$Accuracy[maxIndex] + c(-1,1) * ( qnorm(0.975) * model$results$AccuracySD[maxIndex] / sqrt(5))
+names(cint) <- c('Lower Bound','Upper Bound')
+cint
+```
